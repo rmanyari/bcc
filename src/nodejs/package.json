@@ -1,0 +1,16 @@
+{
+  "name": "node-bcc-binding",
+  "version": "1.0.0",
+  "description": "Node binding for bcc",
+  "main": "bcc/index.js",
+  "scripts": {
+    "test": "tape bcc/test/test*.js"
+  },
+  "author": "Rodrigo Manyari",
+  "license": "Apache 2.0",
+  "dependencies": {
+      "nan": "~2.4",
+      "lodash": "4.17.4",
+      "tape": "4.6.3"
+  }
+}
