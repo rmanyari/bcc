@@ -16,6 +16,14 @@ class Program : public ObjectWrap {
             tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
             SetPrototypeMethod(tpl, "destroy", Destroy);
+            SetPrototypeMethod(tpl, "license", License);
+            SetPrototypeMethod(tpl, "kernelVersion", KernelVersion);
+            SetPrototypeMethod(tpl, "nbFunctions", NumberFunctions);
+            SetPrototypeMethod(tpl, "functionName", FunctionName);
+            SetPrototypeMethod(tpl, "startFunctionById", StartFunctionByID);
+            SetPrototypeMethod(tpl, "startFunctionByName", StartFunctionByName);
+            SetPrototypeMethod(tpl, "functionSizeById", FunctionSizeByID);
+            SetPrototypeMethod(tpl, "functionSizeByName", FunctionSizeByName);
 
             constructor().Reset(Nan::GetFunction(tpl).ToLocalChecked());
             Set(target, Nan::New("Program").ToLocalChecked(), Nan::GetFunction(tpl).ToLocalChecked());
@@ -62,6 +70,82 @@ class Program : public ObjectWrap {
             Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
             void * ptr = obj->program_addr;
             bpf_module_destroy(ptr);
+        }
+
+        static NAN_METHOD(License) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            char * str = bpf_module_license(ptr);
+            const std::string license(str);
+            info.GetReturnValue().Set(Nan::New<v8::String>(license).ToLocalChecked());
+        }
+
+        static NAN_METHOD(KernelVersion) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            unsigned version = bpf_module_kern_version(ptr);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(version));
+        }
+
+        static NAN_METHOD(NumberFunctions) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            size_t nb = bpf_num_functions(ptr);
+            // Would not overflow since valid ebpf programs can
+            // at most have 4096 instructions
+            int nbFunctions = static_cast<int>(nb);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(nbFunctions));
+        }
+
+        static NAN_METHOD(FunctionName) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            unsigned id = info[0]->ToUint32()->Value();
+            const char * str = bpf_function_name(ptr, id);
+            const std::string name(str);
+            info.GetReturnValue().Set(Nan::New<v8::String>(name).ToLocalChecked());
+        }
+
+        static NAN_METHOD(StartFunctionByID) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            unsigned id = info[0]->ToUint32()->Value();
+            // ATM we don't need to store the ptr to the fn
+            bpf_function_start_id(ptr, id);
+            info.GetReturnValue().Set(info.This());
+        }
+
+        static NAN_METHOD(StartFunctionByName) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            v8::Local<v8::String> str = info[0]->ToString();
+            char * name = toCString(str);
+            // ATM we don't need to store the ptr to the fn
+            bpf_function_start(ptr, name);
+            info.GetReturnValue().Set(info.This());
+        }
+
+        static NAN_METHOD(FunctionSizeByID) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            unsigned id = info[0]->ToUint32()->Value();
+            size_t size = bpf_function_size_id(ptr, id);
+            // Would not overflow since valid ebpf programs can
+            // at most have 4096 instructions
+            int fnSize = static_cast<int>(size);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(fnSize));
+        }
+
+        static NAN_METHOD(FunctionSizeByName) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            v8::Local<v8::String> str = info[0]->ToString();
+            char * name = toCString(str);
+            size_t size = bpf_function_size(ptr, name);
+            // Would not overflow since valid ebpf programs can
+            // at most have 4096 instructions
+            int fnSize = static_cast<int>(size);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(fnSize));
         }
 
         static inline Persistent<v8::Function> & constructor() {
