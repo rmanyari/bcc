@@ -15,6 +15,7 @@ class Program : public ObjectWrap {
             // void pointer to the program that will be created
             tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
+            // bpf_common.h interface
             SetPrototypeMethod(tpl, "destroy", Destroy);
             SetPrototypeMethod(tpl, "license", License);
             SetPrototypeMethod(tpl, "kernelVersion", KernelVersion);
@@ -24,6 +25,14 @@ class Program : public ObjectWrap {
             SetPrototypeMethod(tpl, "startFunctionByName", StartFunctionByName);
             SetPrototypeMethod(tpl, "functionSizeById", FunctionSizeByID);
             SetPrototypeMethod(tpl, "functionSizeByName", FunctionSizeByName);
+            SetPrototypeMethod(tpl, "nbTables", NumberTables);
+            SetPrototypeMethod(tpl, "tableId", TableID);
+            SetPrototypeMethod(tpl, "tableFd", TableFD);
+            SetPrototypeMethod(tpl, "tableFdById", TableFDByID);
+            SetPrototypeMethod(tpl, "tableType", TableType);
+            SetPrototypeMethod(tpl, "tableTypeById", TableTypeByID);
+            SetPrototypeMethod(tpl, "tableMaxEntries", TableMaxEntries);
+            SetPrototypeMethod(tpl, "tableMaxEntriesById", TableMaxEntriesByID);
 
             constructor().Reset(Nan::GetFunction(tpl).ToLocalChecked());
             Set(target, Nan::New("Program").ToLocalChecked(), Nan::GetFunction(tpl).ToLocalChecked());
@@ -146,6 +155,87 @@ class Program : public ObjectWrap {
             // at most have 4096 instructions
             int fnSize = static_cast<int>(size);
             info.GetReturnValue().Set(Nan::New<v8::Integer>(fnSize));
+        }
+
+        static NAN_METHOD(NumberTables) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            size_t nb = bpf_num_tables(ptr);
+            int nbTables = static_cast<int>(nb);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(nbTables));
+        }
+
+        static NAN_METHOD(TableID) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            v8::Local<v8::String> str = info[0]->ToString();
+            char * name = toCString(str);
+            size_t id = bpf_table_id(ptr, name);
+            int tableId = static_cast<int>(id);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(tableId));
+        }
+
+        static NAN_METHOD(TableFD) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            v8::Local<v8::String> str = info[0]->ToString();
+            char * name = toCString(str);
+            int tableId = bpf_table_fd(ptr, name);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(tableId));
+        }
+
+        static NAN_METHOD(TableFDByID) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            unsigned id = info[0]->ToUint32()->Value();
+            int tableId = bpf_table_fd_id(ptr, id);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(tableId));
+        }
+
+        static NAN_METHOD(TableType) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            v8::Local<v8::String> str = info[0]->ToString();
+            char * name = toCString(str);
+            int tableType = bpf_table_type(ptr, name);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(tableType));
+        }
+
+        static NAN_METHOD(TableTypeByID) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            unsigned id = info[0]->ToUint32()->Value();
+            int tableType = bpf_table_type_id(ptr, id);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(tableType));
+        }
+
+        static NAN_METHOD(TableMaxEntries) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            v8::Local<v8::String> str = info[0]->ToString();
+            char * name = toCString(str);
+            size_t nb = bpf_table_max_entries(ptr, name);
+            // Won't overflow, when creating the maps initially the
+            // maps attribute look like this:
+            //   struct {    /* Used by BPF_MAP_CREATE */
+            //       __u32         map_type;
+            //       __u32         key_size;    /* size of key in bytes */
+            //       __u32         value_size;  /* size of value in bytes */
+            //       __u32         max_entries; /* maximum number of entries
+            //                                     in a map */
+            //   };
+            // http://man7.org/linux/man-pages/man2/bpf.2.html
+            unsigned maxEntries = static_cast<unsigned>(nb);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(maxEntries));
+        }
+
+        static NAN_METHOD(TableMaxEntriesByID) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            unsigned id = info[0]->ToUint32()->Value();
+            size_t nb = bpf_table_max_entries_id(ptr, id);
+            unsigned maxEntries = static_cast<unsigned>(nb);
+            info.GetReturnValue().Set(Nan::New<v8::Integer>(maxEntries));
         }
 
         static inline Persistent<v8::Function> & constructor() {

@@ -69,13 +69,52 @@ class BCCProgram {
         return this.program.functionSizeByName(name);
     }
 
+    nbTables() {
+        return this.program.nbTables();
+    }
+
+    tableId(name) {
+        this._checkTable(name);
+        return this.program.tableId(name);
+    }
+
+    tableFd(name) {
+        this._checkTable(name);
+        return this.program.tableFd(name);
+    }
+
+    tableFdById(id) {
+        this._checkTableId(id);
+        return this.program.tableFdById(id);
+    }
+
+    tableType(name) {
+        this._checkTable(name);
+        return this.program.tableType(name);
+    }
+
+    tableTypeById(id) {
+        this._checkTableId(id);
+        return this.program.tableTypeById(id);
+    }
+
+    tableMaxEntries(name) {
+        this._checkTable(name);
+        return this.program.tableMaxEntries(name);
+    }
+
+    tableMaxEntriesById(id) {
+        this._checkTableId(id);
+        return this.program.tableMaxEntriesById(id);
+    }
+
     // Verifies the function id is valid.
     _checkId(id) {
         if (!_.isInteger(id)) {
             throw new Error('ID must be an integer');
         }
-        const nbFns = this.nbFunctions() - 1;
-        if(id > nbFns) {
+        const nbFns = this.nbFunctions();
+        if(id >= nbFns) {
             throw new Error(`ID ${id} is invalid. The program contains only ${nbFns} function${nbFns > 1 ? 's' : ''}`);
         }
     }
@@ -88,6 +127,27 @@ class BCCProgram {
         const names = _.map(_.range(0, this.nbFunctions()), (id) => this.functionName(id));
         if (!_.includes(names, name)) {
             throw new Error(`Function name ${name} is invalid. Valid function names are ${JSON.stringify(names)}`);
+        }
+    }
+
+    // Verifies the table name is valid
+    _checkTable(name) {
+        if (!_.isString(name)) {
+            throw new Error('Table name must be a string');
+        }
+        if (_.isEmpty(name)) {
+            throw new Error('Table name cannot be empty');
+        }
+    }
+
+    // Verifies the function id is valid.
+    _checkTableId(id) {
+        if (!_.isInteger(id)) {
+            throw new Error('ID must be an integer');
+        }
+        const nbFns = this.nbTables();
+        if(id >= nbFns) {
+            throw new Error(`ID ${id} is invalid. The program contains only ${nbFns} table${nbFns > 1 ? 's' : ''}`);
         }
     }
 

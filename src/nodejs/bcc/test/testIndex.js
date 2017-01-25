@@ -127,3 +127,85 @@ test('functionSizeByName fn should match the size of the same fn retreived by id
     t.equals(program.functionSizeById(0), program.functionSizeByName('http_filter'));
     t.end();
 });
+
+test('nbTables fn should return the nb of tables created by the program', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.equals(program.nbTables(), 1);
+    t.end();
+});
+
+test('tableId fn should return the id of a ebpf table given a valid name', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.equals(program.tableId('sessions'), 0);
+    t.end();
+});
+
+test('tableId fn should validate the name is valid', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.throws(() => {
+        program.tableId('');
+    }, /name cannot be empty/);
+    t.end();
+});
+
+test('tableId fn should validate the name is a string', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.throws(() => {
+        program.tableId(999);
+    }, /name must be a string/);
+    t.end();
+});
+
+test('tableFd fn should return the fd pointing to an ebpf table given a valid name', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.ok(program.tableFd('sessions') > 0);
+    t.end();
+});
+
+test('tableFdById fn should return the same fd pointing to an ebpf table retrieved by name', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.equals(program.tableFdById(0), program.tableFd('sessions'));
+    t.end();
+});
+
+test('tableFdById fn should validate that the id is an integer', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+        t.throws(() => {
+        program.tableFdById('bad_input');
+    }, /name must be an integer/);
+    t.end();
+});
+
+test('tableFdById fn should validate that the id is within a valid range', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+        t.throws(() => {
+        program.tableFdById(1);
+    }, /The program contains only/);
+    t.end();
+});
+
+test('tableType fn should return the type of the ebpf table (hash in this case)', (t) => {
+    // https://www.kernel.org/doc/Documentation/networking/filter.txt
+    // look at ./include/uapi/linux/pbf.h : hash is index 1
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.equals(program.tableType('sessions'), 1);
+    t.end();
+});
+
+test('tableTypeById fn should return the type of the ebpf table (hash in this case)', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.equals(program.tableTypeById(0), 1);
+    t.end();
+});
+
+test('tableMaxEntries fn should return the size of the map', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.equals(program.tableMaxEntries('sessions'), 1024);
+    t.end();
+});
+
+test.only('tableMaxEntriesById fn should return the same map as the one retrieved by name', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.equals(program.tableMaxEntriesById(0), program.tableMaxEntries('sessions'));
+    t.end();
+});
