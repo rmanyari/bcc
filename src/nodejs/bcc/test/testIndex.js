@@ -172,7 +172,7 @@ test('tableFdById fn should validate that the id is an integer', (t) => {
     const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
         t.throws(() => {
         program.tableFdById('bad_input');
-    }, /name must be an integer/);
+    }, /must be an integer/);
     t.end();
 });
 
@@ -204,7 +204,7 @@ test('tableMaxEntries fn should return the size of the map', (t) => {
     t.end();
 });
 
-test.only('tableMaxEntriesById fn should return the same map as the one retrieved by name', (t) => {
+test('tableMaxEntriesById fn should return the same map as the one retrieved by name', (t) => {
     const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
     t.equals(program.tableMaxEntriesById(0), program.tableMaxEntries('sessions'));
     t.end();
