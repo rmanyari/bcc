@@ -170,7 +170,7 @@ test('tableFdById fn should return the same fd pointing to an ebpf table retriev
 
 test('tableFdById fn should validate that the id is an integer', (t) => {
     const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
-        t.throws(() => {
+    t.throws(() => {
         program.tableFdById('bad_input');
     }, /must be an integer/);
     t.end();
@@ -178,7 +178,7 @@ test('tableFdById fn should validate that the id is an integer', (t) => {
 
 test('tableFdById fn should validate that the id is within a valid range', (t) => {
     const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
-        t.throws(() => {
+    t.throws(() => {
         program.tableFdById(1);
     }, /The program contains only/);
     t.end();
@@ -189,6 +189,14 @@ test('tableType fn should return the type of the ebpf table (hash in this case)'
     // look at ./include/uapi/linux/pbf.h : hash is index 1
     const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
     t.equals(program.tableType('sessions'), 1);
+    t.end();
+});
+
+test('tableType fn should return table name suggestions when passed an invalid name', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.throws(() => {
+        program.tableType('invalid_table_name');
+    }, /sessions/);
     t.end();
 });
 
@@ -207,5 +215,17 @@ test('tableMaxEntries fn should return the size of the map', (t) => {
 test('tableMaxEntriesById fn should return the same map as the one retrieved by name', (t) => {
     const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
     t.equals(program.tableMaxEntriesById(0), program.tableMaxEntries('sessions'));
+    t.end();
+});
+
+test('tableName fn should return the name of a ebpf table for when passed a valid id', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    t.equals(program.tableName(0), 'sessions');
+    t.end();
+});
+
+test('tableKeyDesc fn should return the key info of a ebpf table', (t) => {
+    const program = new BCCProgram(VALID_PROGRAM_FILE, 0, []);
+    console.log(program.tableKeyDesc('sessions'));
     t.end();
 });

@@ -33,6 +33,8 @@ class Program : public ObjectWrap {
             SetPrototypeMethod(tpl, "tableTypeById", TableTypeByID);
             SetPrototypeMethod(tpl, "tableMaxEntries", TableMaxEntries);
             SetPrototypeMethod(tpl, "tableMaxEntriesById", TableMaxEntriesByID);
+            SetPrototypeMethod(tpl, "tableName", TableName);
+            SetPrototypeMethod(tpl, "tableKeyDesc", TableKeyDesc);
 
             constructor().Reset(Nan::GetFunction(tpl).ToLocalChecked());
             Set(target, Nan::New("Program").ToLocalChecked(), Nan::GetFunction(tpl).ToLocalChecked());
@@ -236,6 +238,25 @@ class Program : public ObjectWrap {
             size_t nb = bpf_table_max_entries_id(ptr, id);
             unsigned maxEntries = static_cast<unsigned>(nb);
             info.GetReturnValue().Set(Nan::New<v8::Integer>(maxEntries));
+        }
+
+        static NAN_METHOD(TableName) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            unsigned id = info[0]->ToUint32()->Value();
+            const char * str = bpf_table_name(ptr, id);
+            const std::string name(str);
+            info.GetReturnValue().Set(Nan::New<v8::String>(name).ToLocalChecked());
+        }
+
+        static NAN_METHOD(TableKeyDesc) {
+            Program* obj = ObjectWrap::Unwrap<Program>(info.Holder());
+            void * ptr = obj->program_addr;
+            v8::Local<v8::String> str = info[0]->ToString();
+            char * name = toCString(str);
+            const char * descStr = bpf_table_key_desc(ptr, name);
+            const std::string desc(descStr);
+            info.GetReturnValue().Set(Nan::New<v8::String>(desc).ToLocalChecked());
         }
 
         static inline Persistent<v8::Function> & constructor() {

@@ -108,6 +108,16 @@ class BCCProgram {
         return this.program.tableMaxEntriesById(id);
     }
 
+    tableName(id) {
+        this._checkTableId(id);
+        return this.program.tableName(id);
+    }
+
+    tableKeyDesc(name) {
+        this._checkTable(name);
+        return this.program.tableKeyDesc(name);
+    }
+
     // Verifies the function id is valid.
     _checkId(id) {
         if (!_.isInteger(id)) {
@@ -124,6 +134,9 @@ class BCCProgram {
         if (!_.isString(name)) {
             throw new Error('Function name must be a string');
         }
+        if (_.isEmpty(name)) {
+            throw new Error('Function name cannot be empty');
+        }
         const names = _.map(_.range(0, this.nbFunctions()), (id) => this.functionName(id));
         if (!_.includes(names, name)) {
             throw new Error(`Function name ${name} is invalid. Valid function names are ${JSON.stringify(names)}`);
@@ -137,6 +150,10 @@ class BCCProgram {
         }
         if (_.isEmpty(name)) {
             throw new Error('Table name cannot be empty');
+        }
+        const names = _.map(_.range(0, this.nbTables()), (id) => this.tableName(id));
+        if (!_.includes(names, name)) {
+            throw new Error(`Table name ${name} is invalid. Valid table names are ${JSON.stringify(names)}`);
         }
     }
 
