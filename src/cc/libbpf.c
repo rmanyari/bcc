@@ -44,6 +44,8 @@
 #ifndef __NR_bpf
 #if defined(__powerpc64__)
 #define __NR_bpf 361
+#elif defined(__aarch64__)
+#define __NR_bpf 280
 #else
 #define __NR_bpf 321
 #endif
@@ -66,7 +68,7 @@ static __u64 ptr_to_u64(void *ptr)
   return (__u64) (unsigned long) ptr;
 }
 
-int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries)
+int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries, int map_flags)
 {
   union bpf_attr attr;
   memset(&attr, 0, sizeof(attr));
@@ -74,6 +76,7 @@ int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int
   attr.key_size = key_size;
   attr.value_size = value_size;
   attr.max_entries = max_entries;
+  attr.map_flags = map_flags;
 
   int ret = syscall(__NR_bpf, BPF_MAP_CREATE, &attr, sizeof(attr));
   if (ret < 0 && errno == EPERM) {
@@ -134,6 +137,37 @@ int bpf_get_next_key(int fd, void *key, void *next_key)
   return syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &attr, sizeof(attr));
 }
 
+void bpf_print_hints(char *log)
+{
+  if (log == NULL)
+    return;
+
+  // The following error strings will need maintenance to match LLVM.
+
+  // stack busting
+  if (strstr(log, "invalid stack off=-") != NULL) {
+    fprintf(stderr, "HINT: Looks like you exceeded the BPF stack limit. "
+      "This can happen if you allocate too much local variable storage. "
+      "For example, if you allocated a 1 Kbyte struct (maybe for "
+      "BPF_PERF_OUTPUT), busting a max stack of 512 bytes.\n\n");
+  }
+
+  // didn't check NULL on map lookup
+  if (strstr(log, "invalid mem access 'map_value_or_null'") != NULL) {
+    fprintf(stderr, "HINT: The 'map_value_or_null' error can happen if "
+      "you dereference a pointer value from a map lookup without first "
+      "checking if that pointer is NULL.\n\n");
+  }
+
+  // lacking a bpf_probe_read
+  if (strstr(log, "invalid mem access 'inv'") != NULL) {
+    fprintf(stderr, "HINT: The invalid mem access 'inv' error can happen "
+      "if you try to dereference memory without first using "
+      "bpf_probe_read() to copy it to the BPF stack. Sometimes the "
+      "bpf_probe_read is automatic by the bcc rewriter, other times "
+      "you'll need to be explicit.\n\n");
+  }
+}
 #define ROUND_UP(x, n) (((x) + (n) - 1u) & ~((n) - 1u))
 
 int bpf_prog_load(enum bpf_prog_type prog_type,
@@ -169,7 +203,7 @@ int bpf_prog_load(enum bpf_prog_type prog_type,
   }
 
   ret = syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
-   
+
   if (ret < 0 && errno == EPERM) {
     // When EPERM is returned, two reasons are possible:
     //  1. user has no permissions for bpf()
@@ -201,6 +235,7 @@ int bpf_prog_load(enum bpf_prog_type prog_type,
                      strerror(errno));
              return ret;
          }
+         bpf_log_buffer[0] = 0;
 
          attr.log_buf = ptr_to_u64(bpf_log_buffer);
          attr.log_size = buffer_size;
@@ -217,8 +252,9 @@ int bpf_prog_load(enum bpf_prog_type prog_type,
     }
 
     fprintf(stderr, "bpf: %s\n%s\n", strerror(errno), bpf_log_buffer);
+    bpf_print_hints(bpf_log_buffer);
 
-    free(bpf_log_buffer); 
+    free(bpf_log_buffer);
   }
   return ret;
 }
@@ -626,4 +662,23 @@ int bpf_detach_perf_event(uint32_t ev_type, uint32_t ev_config) {
   // Right now, there is nothing to do, but it's a good idea to encourage
   // callers to detach anything they attach.
   return 0;
+}
+
+int bpf_obj_pin(int fd, const char *pathname)
+{
+  union bpf_attr attr = {
+    .pathname = ptr_to_u64((void *)pathname),
+    .bpf_fd = fd,
+  };
+
+  return syscall(__NR_bpf, BPF_OBJ_PIN, &attr, sizeof(attr));
+}
+
+int bpf_obj_get(const char *pathname)
+{
+  union bpf_attr attr = {
+    .pathname = ptr_to_u64((void *)pathname),
+  };
+
+  return syscall(__NR_bpf, BPF_OBJ_GET, &attr, sizeof(attr));
 }

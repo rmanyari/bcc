@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size,
-		   int max_entries);
+		   int max_entries, int map_flags);
 int bpf_update_elem(int fd, void *key, void *value, unsigned long long flags);
 int bpf_lookup_elem(int fd, void *key, void *value);
 int bpf_delete_elem(int fd, void *key);
@@ -70,6 +70,9 @@ int bpf_attach_perf_event(int progfd, uint32_t ev_type, uint32_t ev_config,
                           uint64_t sample_period, uint64_t sample_freq,
                           pid_t pid, int cpu, int group_fd);
 int bpf_detach_perf_event(uint32_t ev_type, uint32_t ev_config);
+
+int bpf_obj_pin(int fd, const char *pathname);
+int bpf_obj_get(const char *pathname);
 
 #define LOG_BUF_SIZE 65536
 

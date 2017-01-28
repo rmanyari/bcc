@@ -223,8 +223,9 @@ std::string Context::resolve_bin_path(const std::string &bin_path) {
   if (char *which = bcc_procutils_which(bin_path.c_str())) {
     result = which;
     ::free(which);
-  } else if (const char *which_so = bcc_procutils_which_so(bin_path.c_str())) {
+  } else if (char *which_so = bcc_procutils_which_so(bin_path.c_str(), 0)) {
     result = which_so;
+    ::free(which_so);
   }
 
   return result;
@@ -239,7 +240,7 @@ Probe *Context::get(const std::string &probe_name) {
 }
 
 bool Context::generate_usdt_args(std::ostream &stream) {
-  stream << "#include <uapi/linux/ptrace.h>\n";
+  stream << USDT_PROGRAM_HEADER;
   for (auto &p : probes_) {
     if (p->enabled() && !p->usdt_getarg(stream))
       return false;

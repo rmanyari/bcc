@@ -119,48 +119,57 @@ int kprobe__tcp_set_state(struct pt_regs *ctx, struct sock *sk, int state)
     /*
      * This tool includes PID and comm context. It's best effort, and may
      * be wrong in some situations. It currently works like this:
-     * - active connections: cache PID & comm on TCP_SYN_SENT
-     * - passive connections: read PID & comm on TCP_LAST_ACK
-    */
+     * - record timestamp on any state < TCP_FIN_WAIT1
+     * - cache task context on:
+     *       TCP_SYN_SENT: tracing from client
+     *       TCP_LAST_ACK: client-closed from server
+     * - do output on TCP_CLOSE:
+     *       fetch task context if cached, or use current task
+     */
+
+    // capture birth time
+    if (state < TCP_FIN_WAIT1) {
+        /*
+         * Matching just ESTABLISHED may be sufficient, provided no code-path
+         * sets ESTABLISHED without a tcp_set_state() call. Until we know
+         * that for sure, match all early states to increase chances a
+         * timestamp is set.
+         * Note that this needs to be set before the PID filter later on,
+         * since the PID isn't reliable for these early stages, so we must
+         * save all timestamps and do the PID filter later when we can.
+         */
+        u64 ts = bpf_ktime_get_ns();
+        birth.update(&sk, &ts);
+    }
 
     // record PID & comm on SYN_SENT
-    if (state == TCP_SYN_SENT) {
+    if (state == TCP_SYN_SENT || state == TCP_LAST_ACK) {
+        // now we can PID filter, both here and a little later on for CLOSE
         FILTER_PID
         struct id_t me = {.pid = pid};
         bpf_get_current_comm(&me.task, sizeof(me.task));
         whoami.update(&sk, &me);
     }
 
-    // capture birth time
-    if (state < TCP_FIN_WAIT1) {
-        // matching just ESTABLISHED may be sufficient, provided no code-path
-        // sets ESTABLISHED without a tcp_set_state() call. Until we know
-        // that for sure, match all early states to increase chances a
-        // timestamp is set.
-        u64 ts = bpf_ktime_get_ns();
-        birth.update(&sk, &ts);
+    if (state != TCP_CLOSE)
         return 0;
-    }
-
-    // fetch possible cached data
-    struct id_t *mep;
-    mep = whoami.lookup(&sk);
-
-    // passive connection closing; wait until TCP_LAST_ACK
-    if (mep == 0 && state != TCP_LAST_ACK)
-        return 0;
-
-    if (state == TCP_LAST_ACK) {
-        FILTER_PID
-    }
 
     // calculate lifespan
     u64 *tsp, delta_us;
     tsp = birth.lookup(&sk);
     if (tsp == 0) {
-        return 0;   // missed create
+        whoami.delete(&sk);     // may not exist
+        return 0;               // missed create
     }
     delta_us = (bpf_ktime_get_ns() - *tsp) / 1000;
+    birth.delete(&sk);
+
+    // fetch possible cached data, and filter
+    struct id_t *mep;
+    mep = whoami.lookup(&sk);
+    if (mep != 0)
+        pid = mep->pid;
+    FILTER_PID
 
     // get throughput stats. see tcp_get_info().
     u64 rx_b = 0, tx_b = 0, sport = 0;
@@ -177,14 +186,11 @@ int kprobe__tcp_set_state(struct pt_regs *ctx, struct sock *sk, int state)
         data4.saddr = sk->__sk_common.skc_rcv_saddr;
         data4.daddr = sk->__sk_common.skc_daddr;
         // a workaround until data4 compiles with separate lport/dport
+        data4.pid = pid;
         data4.ports = ntohs(dport) + ((0ULL + lport) << 32);
         if (mep == 0) {
-            data4.pid = pid;
             bpf_get_current_comm(&data4.task, sizeof(data4.task));
-            bpf_trace_printk("state %d 0pid %d\\n", state, pid);
         } else {
-            data4.pid = mep->pid;
-            bpf_trace_printk("state %d mpid %d\\n", state, mep->pid);
             bpf_probe_read(&data4.task, sizeof(data4.task), (void *)mep->task);
         }
         ipv4_events.perf_submit(ctx, &data4, sizeof(data4));
@@ -199,17 +205,15 @@ int kprobe__tcp_set_state(struct pt_regs *ctx, struct sock *sk, int state)
             sk->__sk_common.skc_v6_daddr.in6_u.u6_addr32);
         // a workaround until data6 compiles with separate lport/dport
         data6.ports = ntohs(dport) + ((0ULL + lport) << 32);
+        data6.pid = pid;
         if (mep == 0) {
-            data6.pid = pid;
             bpf_get_current_comm(&data6.task, sizeof(data6.task));
         } else {
-            data6.pid = mep->pid;
             bpf_probe_read(&data6.task, sizeof(data6.task), (void *)mep->task);
         }
         ipv6_events.perf_submit(ctx, &data6, sizeof(data6));
     }
 
-    birth.delete(&sk);
     if (mep != 0)
         whoami.delete(&sk);
 

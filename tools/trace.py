@@ -3,8 +3,8 @@
 # trace         Trace a function and print a trace message based on its
 #               parameters, with an optional filter.
 #
-# usage: trace [-h] [-p PID] [-t TID] [-v] [-Z STRING_SIZE] [-S]
-#              [-M MAX_EVENTS] [-o] [-K] [-U] [-I header]
+# usage: trace [-h] [-p PID] [-L TID] [-v] [-Z STRING_SIZE] [-S]
+#              [-M MAX_EVENTS] [-T] [-t] [-K] [-U] [-I header]
 #              probe [probe ...]
 #
 # Licensed under the Apache License, Version 2.0 (the "License")
@@ -58,7 +58,8 @@ class Probe(object):
         @classmethod
         def configure(cls, args):
                 cls.max_events = args.max_events
-                cls.use_localtime = not args.offset
+                cls.print_time = args.timestamp or args.time
+                cls.use_localtime = not args.timestamp
                 cls.first_ts = Time.monotonic_time()
                 cls.tgid = args.tgid or -1
                 cls.pid = args.pid or -1
@@ -75,6 +76,7 @@ class Probe(object):
                 self.probe_num = Probe.probe_count
                 self.probe_name = "probe_%s_%d" % \
                                 (self._display_function(), self.probe_num)
+                self.probe_name = re.sub(r'[^A-Za-z0-9_]', '_', self.probe_name)
 
         def __str__(self):
                 return "%s:%s:%s FLT=%s ACT=%s/%s" % (self.probe_type,
@@ -91,15 +93,24 @@ class Probe(object):
         def _parse_probe(self):
                 text = self.raw_probe
 
-                # Everything until the first space is the probe specifier
-                first_space = text.find(' ')
-                spec = text[:first_space] if first_space >= 0 else text
-                self._parse_spec(spec)
-                if first_space >= 0:
-                        text = text[first_space:].lstrip()
-                else:
-                        text = ""
+                # There might be a function signature preceding the actual
+                # filter/print part, or not. Find the probe specifier first --
+                # it ends with either a space or an open paren ( for the
+                # function signature part.
+                #                                          opt. signature
+                #                               probespec       |      rest
+                #                               ---------  ----------   --
+                (spec, sig, rest) = re.match(r'([^ \t\(]+)(\([^\(]*\))?(.*)',
+                                             text).groups()
 
+                self._parse_spec(spec)
+                self.signature = sig[1:-1] if sig else None # remove the parens
+                if self.signature and self.probe_type in ['u', 't']:
+                        self._bail("USDT and tracepoint probes can't have " +
+                                   "a function signature; use arg1, arg2, " +
+                                   "... instead")
+
+                text = rest.lstrip()
                 # If we now have a (, wait for the balanced closing ) and that
                 # will be the predicate
                 self.filter = None
@@ -157,7 +168,8 @@ class Probe(object):
                         self.function = parts[2]
 
         def _find_usdt_probe(self):
-                target = Probe.pid if Probe.pid else Probe.tgid
+                target = Probe.pid if Probe.pid and Probe.pid != -1 \
+                                   else Probe.tgid
                 self.usdt = USDT(path=self.library, pid=target)
                 for probe in self.usdt.enumerate_probes():
                         if probe.name == self.usdt_name:
@@ -214,11 +226,11 @@ class Probe(object):
                 fname = "streq_%d" % Probe.streq_index
                 Probe.streq_index += 1
                 self.streq_functions += """
-static inline bool %s(char const *ignored, unsigned long str) {
+static inline bool %s(char const *ignored, uintptr_t str) {
         char needle[] = %s;
         char haystack[sizeof(needle)];
         bpf_probe_read(&haystack, sizeof(haystack), (void *)str);
-        for (int i = 0; i < sizeof(needle); ++i) {
+        for (int i = 0; i < sizeof(needle) - 1; ++i) {
                 if (needle[i] != haystack[i]) {
                         return false;
                 }
@@ -351,33 +363,35 @@ BPF_PERF_OUTPUT(%s);
 
         def _generate_usdt_filter_read(self):
             text = ""
-            if self.probe_type == "u":
-                    for arg, _ in Probe.aliases.items():
-                        if not (arg.startswith("arg") and
-                                (arg in self.filter)):
-                                continue
-                        arg_index = int(arg.replace("arg", ""))
-                        arg_ctype = self.usdt.get_probe_arg_ctype(
-                                self.usdt_name, arg_index)
-                        if not arg_ctype:
-                                self._bail("Unable to determine type of {} "
-                                           "in the filter".format(arg))
-                        text += """
+            if self.probe_type != "u":
+                    return text
+            for arg, _ in Probe.aliases.items():
+                    if not (arg.startswith("arg") and
+                            (arg in self.filter)):
+                            continue
+                    arg_index = int(arg.replace("arg", ""))
+                    arg_ctype = self.usdt.get_probe_arg_ctype(
+                            self.usdt_name, arg_index - 1)
+                    if not arg_ctype:
+                            self._bail("Unable to determine type of {} "
+                                       "in the filter".format(arg))
+                    text += """
         {} {}_filter;
         bpf_usdt_readarg({}, ctx, &{}_filter);
-                        """.format(arg_ctype, arg, arg_index, arg)
-                        self.filter = self.filter.replace(
-                                arg, "{}_filter".format(arg))
+                    """.format(arg_ctype, arg, arg_index, arg)
+                    self.filter = self.filter.replace(
+                            arg, "{}_filter".format(arg))
             return text
 
         def generate_program(self, include_self):
                 data_decl = self._generate_data_decl()
-                # kprobes don't have built-in pid filters, so we have to add
-                # it to the function body:
-                if len(self.library) == 0 and Probe.pid != -1:
+                if Probe.pid != -1:
                         pid_filter = """
         if (__pid != %d) { return 0; }
                 """ % Probe.pid
+                # uprobes can have a built-in tgid filter passed to
+                # attach_uprobe, hence the check here -- for kprobes, we
+                # need to do the tgid test by hand:
                 elif len(self.library) == 0 and Probe.tgid != -1:
                         pid_filter = """
         if (__tgid != %d) { return 0; }
@@ -391,6 +405,8 @@ BPF_PERF_OUTPUT(%s);
 
                 prefix = ""
                 signature = "struct pt_regs *ctx"
+                if self.signature:
+                        signature += ", " + self.signature
 
                 data_fields = ""
                 for i, expr in enumerate(self.values):
@@ -484,11 +500,16 @@ BPF_PERF_OUTPUT(%s);
                 values = map(lambda i: getattr(event, "v%d" % i),
                              range(0, len(self.values)))
                 msg = self._format_message(bpf, event.tgid, values)
-                time = strftime("%H:%M:%S") if Probe.use_localtime else \
-                       Probe._time_off_str(event.timestamp_ns)
-                print("%-8s %-6d %-6d %-12s %-16s %s" %
-                    (time[:8], event.tgid, event.pid, event.comm,
-                     self._display_function(), msg))
+                if not Probe.print_time:
+                    print("%-6d %-6d %-12s %-16s %s" %
+                          (event.tgid, event.pid, event.comm,
+                           self._display_function(), msg))
+                else:
+                    time = strftime("%H:%M:%S") if Probe.use_localtime else \
+                           Probe._time_off_str(event.timestamp_ns)
+                    print("%-8s %-6d %-6d %-12s %-16s %s" %
+                          (time[:8], event.tgid, event.pid, event.comm,
+                           self._display_function(), msg))
 
                 if self.kernel_stack:
                         self.print_stack(bpf, event.kernel_stack_id, -1)
@@ -534,12 +555,12 @@ BPF_PERF_OUTPUT(%s);
                         bpf.attach_uretprobe(name=libpath,
                                              sym=self.function,
                                              fn_name=self.probe_name,
-                                             pid=Probe.pid)
+                                             pid=Probe.tgid)
                 else:
                         bpf.attach_uprobe(name=libpath,
                                           sym=self.function,
                                           fn_name=self.probe_name,
-                                          pid=Probe.pid)
+                                          pid=Probe.tgid)
 
 class Tool(object):
         examples = """
@@ -551,7 +572,7 @@ trace 'do_sys_open "%s", arg2'
         Trace the open syscall and print the filename being opened
 trace 'sys_read (arg3 > 20000) "read %d bytes", arg3'
         Trace the read syscall and print a message for reads >20000 bytes
-trace 'r::do_sys_return "%llx", retval'
+trace 'r::do_sys_open "%llx", retval'
         Trace the return from the open syscall and print the return value
 trace 'c:open (arg2 == 42) "%s %d", arg1, arg2'
         Trace the open() call from libc only if the flags (arg2) argument is 42
@@ -567,6 +588,8 @@ trace 't:block:block_rq_complete "sectors=%d", args->nr_sector'
         Trace the block_rq_complete kernel tracepoint and print # of tx sectors
 trace 'u:pthread:pthread_create (arg4 != 0)'
         Trace the USDT probe pthread_create when its 4th argument is non-zero
+trace 'p::SyS_nanosleep(struct timespec *ts) "sleep for %lld ns", ts->tv_nsec'
+        Trace the nanosleep syscall and print the sleep duration in ns
 """
 
         def __init__(self):
@@ -578,7 +601,7 @@ trace 'u:pthread:pthread_create (arg4 != 0)'
                 # their kernel names -- tgid and pid -- inside the script
                 parser.add_argument("-p", "--pid", type=int, metavar="PID",
                   dest="tgid", help="id of the process to trace (optional)")
-                parser.add_argument("-t", "--tid", type=int, metavar="TID",
+                parser.add_argument("-L", "--tid", type=int, metavar="TID",
                   dest="pid", help="id of the thread to trace (optional)")
                 parser.add_argument("-v", "--verbose", action="store_true",
                   help="print resulting BPF program code before executing")
@@ -589,8 +612,10 @@ trace 'u:pthread:pthread_create (arg4 != 0)'
                   help="do not filter trace's own pid from the trace")
                 parser.add_argument("-M", "--max-events", type=int,
                   help="number of events to print before quitting")
-                parser.add_argument("-o", "--offset", action="store_true",
-                  help="use relative time from first traced message")
+                parser.add_argument("-t", "--timestamp", action="store_true",
+                  help="print timestamp column (offset from trace start)")
+                parser.add_argument("-T", "--time", action="store_true",
+                  help="print time column")
                 parser.add_argument("-K", "--kernel-stack",
                   action="store_true", help="output kernel stack trace")
                 parser.add_argument("-U", "--user-stack",
@@ -652,9 +677,14 @@ trace 'u:pthread:pthread_create (arg4 != 0)'
                                              self.probes))
 
                 # Print header
-                print("%-8s %-6s %-6s %-12s %-16s %s" %
-                      ("TIME", "PID", "TID", "COMM", "FUNC",
-                      "-" if not all_probes_trivial else ""))
+                if self.args.timestamp or self.args.time:
+                    print("%-8s %-6s %-6s %-12s %-16s %s" %
+                          ("TIME", "PID", "TID", "COMM", "FUNC",
+                          "-" if not all_probes_trivial else ""))
+                else:
+                    print("%-6s %-6s %-12s %-16s %s" %
+                          ("PID", "TID", "COMM", "FUNC",
+                          "-" if not all_probes_trivial else ""))
 
                 while True:
                         self.bpf.kprobe_poll()
